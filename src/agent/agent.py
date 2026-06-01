@@ -3,13 +3,19 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
+from src.telemetry.token_tracker import agent_token_tracker
 
 
 # Security: prompt injection and unsafe medical requests
 _INJECTION_PATTERNS = [
     "ignore previous", "forget your instructions", "you are now",
-    "act as", "jailbreak", "pretend you", "system prompt",
-    "bỏ qua hướng dẫn", "quên đi", "đóng vai", "không còn là",
+    "act as", "act like", "roleplay", "jailbreak", "pretend you",
+    "system prompt", "developer message", "override system", "bypass safety",
+    "bỏ qua hướng dẫn", "bỏ qua mọi hướng dẫn", "quên đi", "đóng vai",
+    "không còn là", "hướng dẫn hệ thống", "thông điệp hệ thống",
+    "tôi là bác sĩ", "toi la bac si", "you are a doctor", "as a doctor",
+    "hãy đưa ra câu trả lời có tình huống xấu nhất", "tinh huong xau nhat",
+    "worst case", "worst-case", "catastrophic scenario",
 ]
 _UNSAFE_MEDICAL = [
     "kê đơn thuốc", "chẩn đoán bệnh", "liều dùng", "tự chữa",
@@ -22,7 +28,7 @@ class ReActAgent:
     SKELETON: A ReAct-style Agent that follows the Thought-Action-Observation loop.
     Students should implement the core loop logic and tool execution.
     """
-    
+
     def __init__(
         self,
         llm: LLMProvider,
@@ -55,6 +61,7 @@ class ReActAgent:
             "3. Bắt buộc kết thúc bằng \"Final Answer:\".\n"
             "4. KHÔNG chẩn đoán, KHÔNG kê đơn thuốc.\n"
             "5. Triệu chứng nguy hiểm → luôn thêm hotline Vinmec: 1800 599 920.\n"
+            "6. Sau khi có Observation, lượt kế tiếp phải trả Final Answer, không gọi tool thêm.\n"
         )
 
         if not self.enable_few_shot:
@@ -108,13 +115,26 @@ class ReActAgent:
         if blocked:
             return blocked
 
+        # Reset token tracker for this session
+        agent_token_tracker.reset()
+
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
 
         conversation = f"User: {user_input}\n"
+        last_call = None
+        repeat_count = 0
 
         for step in range(1, self.max_steps + 1):
             result = self.llm.generate(conversation, system_prompt=self.get_system_prompt())
             response = result.get("content", "")
+
+            # Record token usage for this LLM step
+            agent_token_tracker.record_step(
+                step=step,
+                model=self.llm.model_name,
+                usage=result.get("usage"),
+                latency_ms=result.get("latency_ms", 0),
+            )
 
             logger.log_event(
                 "AGENT_STEP",
@@ -123,17 +143,27 @@ class ReActAgent:
                     "llm_output": response,
                     "usage": result.get("usage"),
                     "latency_ms": result.get("latency_ms"),
+                    "cumulative_tokens": agent_token_tracker.total_tokens,
+                    "cumulative_cost_usd": agent_token_tracker.total_cost_usd,
                 },
             )
 
             if "Final Answer:" in response:
                 answer = response.split("Final Answer:")[-1].strip()
                 logger.log_event("AGENT_END", {"steps": step, "answer": answer})
+                agent_token_tracker.log_summary(user_input, "completed", answer)
                 return answer
 
             parsed = self._parse_action(response)
             if parsed:
                 tool_name, raw_args = parsed
+                current_call = (tool_name, raw_args)
+                if current_call == last_call:
+                    repeat_count += 1
+                else:
+                    repeat_count = 0
+                last_call = current_call
+
                 observation = self._execute_tool(tool_name, raw_args)
                 logger.log_event(
                     "TOOL_CALL",
@@ -144,6 +174,10 @@ class ReActAgent:
                         "observation": observation,
                     },
                 )
+                if repeat_count >= 1:
+                    answer = f"Tóm tắt nhanh: {observation}"
+                    logger.log_event("AGENT_END", {"steps": step, "answer": answer, "reason": "repeat_tool"})
+                    return answer
                 conversation += response + f"\nObservation: {observation}\n"
                 continue
 
@@ -151,6 +185,7 @@ class ReActAgent:
             conversation += response + "\n"
 
         logger.log_event("AGENT_TIMEOUT", {"max_steps": self.max_steps})
+        agent_token_tracker.log_summary(user_input, "timeout")
         return "Xin lỗi, không tìm được câu trả lời. Hotline Vinmec: 1800 599 920."
 
     def _execute_tool(self, tool_name: str, raw_args: str) -> str:
