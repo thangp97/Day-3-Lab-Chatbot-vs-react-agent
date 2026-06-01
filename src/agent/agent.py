@@ -47,6 +47,7 @@ class ReActAgent:
         prompt = (
             "Bạn là VinmecBot — trợ lý AI của Bệnh viện Đa khoa Quốc tế Vinmec.\n"
             "Hỗ trợ bệnh nhân hỏi đáp về phẫu thuật cắt ruột thừa nội soi.\n\n"
+            "CHỈ trả lời bằng tiếng Việt. TUYỆT ĐỐI không dùng tiếng Anh hoặc tiếng Trung.\n\n"
             "CÔNG CỤ:\n"
             f"{tool_descriptions}\n\n"
             "ĐỊNH DẠNG BẮT BUỘC:\n"

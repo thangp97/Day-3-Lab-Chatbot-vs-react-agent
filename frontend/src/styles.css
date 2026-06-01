@@ -215,6 +215,33 @@ button {
   font-weight: 600;
 }
 
+.eval-button {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #06101e;
+  background: linear-gradient(135deg, #7ad8ff, #8b8dff);
+  box-shadow: 0 12px 24px rgba(121, 217, 255, 0.18);
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.eval-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.eval-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.panel-error {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: #ffd9d9;
+}
+
 .mini-stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -250,6 +277,72 @@ button {
   padding: 22px 24px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(12, 19, 33, 0.96), rgba(12, 19, 33, 0.7));
+}
+
+.evaluation-card {
+  border-bottom: 1px solid var(--border);
+  padding: 20px 24px 12px;
+  background: rgba(12, 18, 32, 0.72);
+}
+
+.evaluation-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.evaluation-header h3 {
+  margin: 0;
+  font-family: 'Sora', sans-serif;
+  font-size: 1.1rem;
+}
+
+.evaluation-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.evaluation-table {
+  margin-top: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.evaluation-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.evaluation-head {
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.evaluation-cell p {
+  margin: 0 0 8px;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.evaluation-cell strong {
+  color: var(--text-main);
+}
+
+.evaluation-meta {
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 
 .chat-topbar h2 {
@@ -345,6 +438,17 @@ button {
   font-size: 0.78rem;
 }
 
+.message-meta .badge-source {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(139, 141, 255, 0.2);
+  color: #8b8dff;
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .typing {
   min-height: 58px;
   display: flex;
@@ -412,6 +516,38 @@ button {
 
 .composer-input::placeholder {
   color: #74809a;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mode-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.mode-button.active {
+  background: rgba(121, 217, 255, 0.18);
+  color: var(--text-main);
+}
+
+.mode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .send-button {

@@ -8,11 +8,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+import time
+
 import ollama
 from dotenv import load_dotenv
 
+from src.agent.agent import ReActAgent
+from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
 from src.telemetry.metrics import tracker
+from src.tools.medical_tools import TOOLS
 
 load_dotenv()
 
@@ -21,6 +26,7 @@ FRONTEND_DIST = ROOT_DIR / "frontend" / "dist"
 
 SYSTEM_PROMPT = (
 	"Bạn là trợ lý bệnh viện hữu ích. Hãy trả lời rõ ràng, ngắn gọn, an toàn và CHỈ dùng tiếng Việt. "
+	"Tuyệt đối không dùng tiếng Anh hoặc tiếng Trung. "
 	"Nếu người dùng hỏi về triệu chứng nguy cấp, hãy khuyên họ đi khám hoặc tìm hỗ trợ y tế ngay."
 )
 
@@ -39,6 +45,85 @@ def create_ollama_client() -> ollama.Client:
 
 OLLAMA_MODEL = resolve_ollama_model()
 OLLAMA_CLIENT = create_ollama_client()
+
+EVALUATION_PROMPTS = [
+	"Tôi cần nhịn ăn bao lâu trước phẫu thuật?",
+	"Sau mổ bao lâu thì được tắm?",
+	"Vết mổ đỏ và sưng thì có nguy hiểm không?",
+	"Tôi có thể ăn gì vào ngày đầu sau mổ?",
+	"Khi nào cần tái khám sau phẫu thuật?",
+]
+
+
+class OllamaProvider(LLMProvider):
+	def __init__(self, model_name: str, client: ollama.Client):
+		super().__init__(model_name=model_name)
+		self.client = client
+
+	def generate(self, prompt: str, system_prompt: str | None = None) -> dict:
+		start_time = time.time()
+		messages = []
+		if system_prompt:
+			messages.append({"role": "system", "content": system_prompt})
+		messages.append({"role": "user", "content": prompt})
+
+		response = self.client.chat(model=self.model_name, messages=messages)
+		latency_ms = int((time.time() - start_time) * 1000)
+		content = response.get("message", {}).get("content", "").strip()
+		usage = response.get("usage", {})
+		usage_payload = {
+			"prompt_tokens": usage.get("prompt_tokens", 0),
+			"completion_tokens": usage.get("completion_tokens", 0),
+			"total_tokens": usage.get("total_tokens", 0),
+		}
+
+		return {
+			"content": content,
+			"usage": usage_payload,
+			"latency_ms": latency_ms,
+			"provider": "ollama",
+		}
+
+	def stream(self, prompt: str, system_prompt: str | None = None):
+		raise NotImplementedError("Streaming is not implemented for OllamaProvider")
+
+
+def should_use_agent(payload: dict) -> bool:
+	flag = str(os.getenv("USE_AGENT", "")).strip().lower()
+	use_agent_env = flag in {"1", "true", "yes", "y", "on"}
+	use_agent_payload = str(payload.get("mode", "")).strip().lower() == "agent"
+	return use_agent_env or use_agent_payload
+
+
+def run_llm_response(model: str, prompt: str) -> tuple[str, dict, int]:
+	start_time = time.time()
+	response = OLLAMA_CLIENT.chat(
+		model=model,
+		messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+	)
+	latency_ms = int((time.time() - start_time) * 1000)
+	content = response.get("message", {}).get("content", "").strip()
+	usage = response.get("usage", {})
+	usage_payload = {
+		"prompt_tokens": usage.get("prompt_tokens", 0),
+		"completion_tokens": usage.get("completion_tokens", 0),
+		"total_tokens": usage.get("total_tokens", 0),
+	}
+	return content, usage_payload, latency_ms
+
+
+def run_agent_response(model: str, prompt: str) -> tuple[str, dict, int]:
+	start_time = time.time()
+	provider = OllamaProvider(model_name=model, client=OLLAMA_CLIENT)
+	agent = ReActAgent(llm=provider, tools=TOOLS)
+	content = agent.run(prompt)
+	latency_ms = int((time.time() - start_time) * 1000)
+	usage_payload = {
+		"prompt_tokens": 0,
+		"completion_tokens": 0,
+		"total_tokens": 0,
+	}
+	return content, usage_payload, latency_ms
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -208,6 +293,91 @@ class ChatHandler(BaseHTTPRequestHandler):
 
 	def do_POST(self) -> None:
 		parsed_url = urlparse(self.path)
+		if parsed_url.path == "/api/evaluation":
+			try:
+				payload = read_json_body(self)
+				model = str(payload.get("model") or OLLAMA_MODEL).strip()
+				prompts = payload.get("prompts") or EVALUATION_PROMPTS
+				if not isinstance(prompts, list) or not prompts:
+					raise ValueError("'prompts' must be a non-empty list")
+
+				rows = []
+				llm_latencies = []
+				agent_latencies = []
+
+				for prompt in prompts:
+					prompt_text = str(prompt).strip()
+					if not prompt_text:
+						continue
+
+					llm_reply, llm_usage, llm_latency = run_llm_response(model, prompt_text)
+					agent_reply, agent_usage, agent_latency = run_agent_response(model, prompt_text)
+					llm_latencies.append(llm_latency)
+					agent_latencies.append(agent_latency)
+
+					tracker.track_request(
+						provider="ollama",
+						model=model,
+						usage=llm_usage,
+						latency_ms=llm_latency,
+					)
+					tracker.track_request(
+						provider="ollama",
+						model=model,
+						usage=agent_usage,
+						latency_ms=agent_latency,
+					)
+
+					rows.append(
+						{
+							"prompt": prompt_text,
+							"llm": {
+								"reply": llm_reply,
+								"latency_ms": llm_latency,
+								"usage": llm_usage,
+							},
+							"agent": {
+								"reply": agent_reply,
+								"latency_ms": agent_latency,
+								"usage": agent_usage,
+							},
+						}
+					)
+
+				avg_llm_latency = int(sum(llm_latencies) / max(len(llm_latencies), 1))
+				avg_agent_latency = int(sum(agent_latencies) / max(len(agent_latencies), 1))
+				logger.log_event(
+					"EVALUATION_RUN",
+					{
+						"model": model,
+						"prompt_count": len(rows),
+						"avg_llm_latency_ms": avg_llm_latency,
+						"avg_agent_latency_ms": avg_agent_latency,
+						"rows": rows,
+					},
+				)
+
+				json_response(
+					self,
+					HTTPStatus.OK,
+					{
+						"model": model,
+						"avg_llm_latency_ms": avg_llm_latency,
+						"avg_agent_latency_ms": avg_agent_latency,
+						"rows": rows,
+					},
+				)
+			except ValueError as exc:
+				json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+			except Exception as exc:  # noqa: BLE001
+				logger.error(f"Evaluation request failed: {exc}")
+				json_response(
+					self,
+					HTTPStatus.INTERNAL_SERVER_ERROR,
+					{"error": "Không thể chạy đánh giá."},
+				)
+			return
+
 		if parsed_url.path != "/api/chat":
 			self.send_error(HTTPStatus.NOT_FOUND)
 			return
@@ -216,23 +386,35 @@ class ChatHandler(BaseHTTPRequestHandler):
 			payload = read_json_body(self)
 			messages = normalize_messages(payload.get("messages"))
 			model = str(payload.get("model") or OLLAMA_MODEL).strip()
+			use_agent = should_use_agent(payload)
+			start_time = time.time()
 
-			start_time = __import__("time").time()
-			response = OLLAMA_CLIENT.chat(
-				model=model,
-				messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
-			)
-			latency_ms = int((__import__("time").time() - start_time) * 1000)
-
-			content = response["message"]["content"].strip()
-			# Ollama returns token counts at top-level keys, not inside a "usage" dict
-			prompt_tokens     = response.get("prompt_eval_count", 0)
-			completion_tokens = response.get("eval_count", 0)
-			usage_payload = {
-				"prompt_tokens":     prompt_tokens,
-				"completion_tokens": completion_tokens,
-				"total_tokens":      prompt_tokens + completion_tokens,
-			}
+			if use_agent:
+				provider = OllamaProvider(model_name=model, client=OLLAMA_CLIENT)
+				agent = ReActAgent(llm=provider, tools=TOOLS)
+				user_input = messages[-1]["content"]
+				content = agent.run(user_input)
+				latency_ms = int((time.time() - start_time) * 1000)
+				usage_payload = {
+					"prompt_tokens": 0,
+					"completion_tokens": 0,
+					"total_tokens": 0,
+				}
+				source = "AGENT"
+			else:
+				response = OLLAMA_CLIENT.chat(
+					model=model,
+					messages=[{"role": "system", "content": SYSTEM_PROMPT}, *messages],
+				)
+				latency_ms = int((time.time() - start_time) * 1000)
+				content = response["message"]["content"].strip()
+				usage = response.get("usage", {})
+				usage_payload = {
+					"prompt_tokens": usage.get("prompt_tokens", 0),
+					"completion_tokens": usage.get("completion_tokens", 0),
+					"total_tokens": usage.get("total_tokens", 0),
+				}
+				source = "LLM"
 
 			tracker.track_request(
 				provider="ollama",
@@ -246,6 +428,7 @@ class ChatHandler(BaseHTTPRequestHandler):
 					"model": model,
 					"latency_ms": latency_ms,
 					"message_count": len(messages),
+					"source": source,
 				},
 			)
 
@@ -256,6 +439,7 @@ class ChatHandler(BaseHTTPRequestHandler):
 					"reply": content,
 					"model": model,
 					"latency_ms": latency_ms,
+					"source": source,
 					"usage": usage_payload,
 				},
 			)
