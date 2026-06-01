@@ -51,13 +51,15 @@ def run():
         latency_ms = int((time.time() - start_time) * 1000)
 
         content = response["message"]["content"].strip()
-        usage = response.get("usage", {})
+        # Ollama returns token counts at top-level keys, not inside a "usage" dict
+        prompt_tokens     = response.get("prompt_eval_count", 0)
+        completion_tokens = response.get("eval_count", 0)
         result = {
             "content": content,
             "usage": {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
+                "prompt_tokens":     prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens":      prompt_tokens + completion_tokens,
             },
             "latency_ms": latency_ms,
             "provider": "ollama",

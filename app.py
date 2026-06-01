@@ -225,11 +225,13 @@ class ChatHandler(BaseHTTPRequestHandler):
 			latency_ms = int((__import__("time").time() - start_time) * 1000)
 
 			content = response["message"]["content"].strip()
-			usage = response.get("usage", {})
+			# Ollama returns token counts at top-level keys, not inside a "usage" dict
+			prompt_tokens     = response.get("prompt_eval_count", 0)
+			completion_tokens = response.get("eval_count", 0)
 			usage_payload = {
-				"prompt_tokens": usage.get("prompt_tokens", 0),
-				"completion_tokens": usage.get("completion_tokens", 0),
-				"total_tokens": usage.get("total_tokens", 0),
+				"prompt_tokens":     prompt_tokens,
+				"completion_tokens": completion_tokens,
+				"total_tokens":      prompt_tokens + completion_tokens,
 			}
 
 			tracker.track_request(
@@ -261,11 +263,9 @@ class ChatHandler(BaseHTTPRequestHandler):
 			json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 		except Exception as exc:  # noqa: BLE001
 			logger.error(f"Chat request failed: {exc}")
-			logger.error(f"Yêu cầu chat thất bại: {exc}")
 			json_response(
 				self,
 				HTTPStatus.INTERNAL_SERVER_ERROR,
-				{"error": "Failed to generate a response from the local model."},
 				{"error": "Không thể tạo phản hồi từ mô hình cục bộ."},
 			)
 
