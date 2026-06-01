@@ -14,10 +14,10 @@ SYSTEM_PROMPT = (
 )
 
 def _resolve_ollama_model() -> str:
-    model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
-    if model_name == "qwen2.5":
-        return "qwen2.5:7b"
-    return model_name
+    model_name = os.getenv("OLLAMA_MODEL")
+    if not model_name:
+        raise RuntimeError("Missing OLLAMA_MODEL in .env")
+    return model_name.strip()
 
 
 OLLAMA_MODEL = _resolve_ollama_model()
@@ -33,7 +33,7 @@ TEST_CASES = [
 
 def run():
     print("=" * 60)
-    print(f"CHATBOT BASELINE LOCAL QWEN ({OLLAMA_MODEL})")
+    print(f"TRỢ LÝ CƠ SỞ QWEN CỤC BỘ ({OLLAMA_MODEL})")
     print("=" * 60)
 
     client = ollama.Client(host=OLLAMA_HOST) if OLLAMA_HOST else ollama.Client()
@@ -75,7 +75,7 @@ def run():
             "model": OLLAMA_MODEL,
             "latency_ms": result["latency_ms"],
         })
-        print(f"Chatbot: {content[:200]}...")   # in 200 ký tự đầu
+        print(f"Trợ lý: {content[:200]}...")   # in 200 ký tự đầu
         print("-" * 60)
 
 if __name__ == "__main__":
