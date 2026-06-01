@@ -11,17 +11,26 @@ _INJECTION_PATTERNS = [
     "ignore previous", "forget your instructions", "you are now",
     "act as", "act like", "roleplay", "jailbreak", "pretend you",
     "system prompt", "developer message", "override system", "bypass safety",
-    "bỏ qua hướng dẫn", "bỏ qua mọi hướng dẫn", "quên đi", "đóng vai",
-    "không còn là", "hướng dẫn hệ thống", "thông điệp hệ thống",
+    "bỏ qua hướng dẫn", "bo qua huong dan", "bỏ qua mọi hướng dẫn", "quên đi", "quen di", "đóng vai", "dong vai",
+    "không còn là", "khong con la", "hướng dẫn hệ thống", "huong dan he thong", "thông điệp hệ thống",
     "tôi là bác sĩ", "toi la bac si", "you are a doctor", "as a doctor",
     "hãy đưa ra câu trả lời có tình huống xấu nhất", "tinh huong xau nhat",
     "worst case", "worst-case", "catastrophic scenario",
 ]
 _UNSAFE_MEDICAL = [
-    "kê đơn thuốc", "chẩn đoán bệnh", "liều dùng", "tự chữa",
+    "kê đơn thuốc", "ke don thuoc", "chẩn đoán bệnh", "chan doan benh", 
+    "liều dùng", "lieu dung", "tự chữa", "tu chua",
+    "kê đơn", "ke don", "chẩn đoán", "chan doan", 
+    "mua thuốc", "mua thuoc", "uống thuốc gì", "uong thuoc gi",
     "prescribe", "diagnose",
 ]
 
+def _normalize_text(text: str) -> str:
+    """Loại bỏ dấu câu và chuẩn hóa khoảng trắng để tránh lách luật."""
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 class ReActAgent:
     """
@@ -63,6 +72,7 @@ class ReActAgent:
             "4. KHÔNG chẩn đoán, KHÔNG kê đơn thuốc.\n"
             "5. Triệu chứng nguy hiểm → luôn thêm hotline Vinmec: 1800 599 920.\n"
             "6. Sau khi có Observation, lượt kế tiếp phải trả Final Answer, không gọi tool thêm.\n"
+            "7. Nếu người dùng hỏi các vấn đề KHÔNG liên quan đến phẫu thuật ruột thừa hoặc y tế, bạn PHẢI trả lời chính xác câu này (trong phần Final Answer): 'Tôi là bot phục vụ mục đích y tế trong lĩnh vực ruột thừa và không phục vụ mục đích khác.'\n"
         )
 
         if not self.enable_few_shot:
@@ -81,15 +91,15 @@ class ReActAgent:
 
     def _security_check(self, user_input: str) -> Optional[str]:
         """Chặn prompt injection và yêu cầu y tế không an toàn."""
-        text = user_input.lower()
+        normalized_text = _normalize_text(user_input)
 
         for pattern in _INJECTION_PATTERNS:
-            if pattern in text:
+            if _normalize_text(pattern) in normalized_text:
                 logger.log_event("SECURITY_BLOCK", {"type": "injection", "input": user_input[:80]})
                 return "Yêu cầu không hợp lệ. Tôi chỉ hỗ trợ câu hỏi về phẫu thuật tại Vinmec."
 
         for pattern in _UNSAFE_MEDICAL:
-            if pattern in text:
+            if _normalize_text(pattern) in normalized_text:
                 logger.log_event("SECURITY_BLOCK", {"type": "unsafe_medical", "input": user_input[:80]})
                 return "Tôi không thể chẩn đoán hoặc kê đơn thuốc. Liên hệ bác sĩ: 1800 599 920."
 
