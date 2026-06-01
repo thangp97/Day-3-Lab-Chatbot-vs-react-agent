@@ -38,9 +38,13 @@ function formatLatency(latencyMs) {
 function App() {
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState('');
+  const [mode, setMode] = useState('llm');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [serverInfo, setServerInfo] = useState({ model: 'Qwen cục bộ', status: 'Đang kiểm tra...' });
+  const [evaluation, setEvaluation] = useState(null);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [evaluationError, setEvaluationError] = useState('');
   const messagesRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -98,6 +102,7 @@ function App() {
             role,
             content: messageContent,
           })),
+          mode,
         }),
       });
 
@@ -112,6 +117,7 @@ function App() {
         createMessage('assistant', data.reply || 'Không nhận được phản hồi.', {
           model: data.model,
           latencyMs: data.latency_ms,
+          source: data.source,
         }),
       ]);
     } catch (requestError) {
@@ -134,6 +140,34 @@ function App() {
 
   const handlePromptClick = async (prompt) => {
     await sendMessage(prompt);
+  };
+
+  const runEvaluation = async () => {
+    setEvaluationError('');
+    setEvaluationLoading(true);
+
+    try {
+      const response = await fetch('/api/evaluation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(body || 'Không thể chạy đánh giá');
+      }
+
+      const data = await response.json();
+      setEvaluation(data);
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : 'Lỗi không xác định';
+      setEvaluationError(message);
+    } finally {
+      setEvaluationLoading(false);
+    }
   };
 
   return (
@@ -188,6 +222,14 @@ function App() {
             </div>
           </div>
         </section>
+
+        <section className="panel">
+          <div className="panel-label">Evaluation 7đ</div>
+          <button type="button" className="eval-button" onClick={runEvaluation} disabled={evaluationLoading}>
+            {evaluationLoading ? 'Đang chạy đánh giá...' : 'Chạy bảng so sánh'}
+          </button>
+          {evaluationError ? <p className="panel-error">{evaluationError}</p> : null}
+        </section>
       </aside>
 
       <main className="chat-card">
@@ -202,14 +244,52 @@ function App() {
           </div>
         </header>
 
+        {evaluation ? (
+          <section className="evaluation-card">
+            <div className="evaluation-header">
+              <div>
+                <p className="eyebrow">Evaluation 7đ</p>
+                <h3>Bảng so sánh Chatbot vs Agent</h3>
+              </div>
+              <div className="evaluation-stats">
+                <span>LLM TB: {formatLatency(evaluation.avg_llm_latency_ms)}</span>
+                <span>Agent TB: {formatLatency(evaluation.avg_agent_latency_ms)}</span>
+              </div>
+            </div>
+            <div className="evaluation-table">
+              <div className="evaluation-row evaluation-head">
+                <span>Prompt</span>
+                <span>LLM</span>
+                <span>Agent</span>
+              </div>
+              {evaluation.rows?.map((row, index) => (
+                <div key={`${row.prompt}-${index}`} className="evaluation-row">
+                  <div className="evaluation-cell">
+                    <strong>{row.prompt}</strong>
+                  </div>
+                  <div className="evaluation-cell">
+                    <p>{row.llm.reply}</p>
+                    <span className="evaluation-meta">{formatLatency(row.llm.latency_ms)}</span>
+                  </div>
+                  <div className="evaluation-cell">
+                    <p>{row.agent.reply}</p>
+                    <span className="evaluation-meta">{formatLatency(row.agent.latency_ms)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className="message-stream" ref={messagesRef}>
           {messages.map((message) => (
             <article key={message.id} className={`message-row ${message.role}`}>
               <div className="avatar">{message.role === 'assistant' ? 'AI' : 'Bạn'}</div>
               <div className="message-bubble">
                 <div className="message-content">{message.content}</div>
-                {message.role === 'assistant' && (message.model || message.latencyMs) ? (
+                {message.role === 'assistant' && (message.model || message.latencyMs || message.source) ? (
                   <div className="message-meta">
+                    {message.source ? <span className="badge-source">{message.source}</span> : null}
                     {message.model ? <span>{message.model}</span> : null}
                     {message.latencyMs ? <span>{formatLatency(message.latencyMs)}</span> : null}
                   </div>
@@ -253,6 +333,24 @@ function App() {
                 }
               }}
             />
+            <div className="mode-toggle" role="group" aria-label="Chọn chế độ">
+              <button
+                type="button"
+                className={`mode-button ${mode === 'llm' ? 'active' : ''}`}
+                onClick={() => setMode('llm')}
+                disabled={loading}
+              >
+                LLM
+              </button>
+              <button
+                type="button"
+                className={`mode-button ${mode === 'agent' ? 'active' : ''}`}
+                onClick={() => setMode('agent')}
+                disabled={loading}
+              >
+                Agent
+              </button>
+            </div>
             <button type="submit" className="send-button" disabled={loading || !draft.trim()}>
               {loading ? 'Đang suy nghĩ...' : 'Gửi'}
             </button>
