@@ -10,26 +10,24 @@
 
 Trong vai tro TV2, em phu trach hoan thien ReAct Agent va security guard. Cac phan duoc trien khai tap trung vao agent loop, parsing Action/args, log telemetry, va giam parse error bang few-shot.
 
-- **Modules Implementated**: [src/agent/agent.py](src/agent/agent.py#L1-L164)
+- **Modules Implementated**: [src/agent/agent.py](src/agent/agent.py#L1-L200)
 - **Code Highlights**:
-	- System prompt ReAct + quy tac + few-shot vi du de giam PARSE_ERROR: [src/agent/agent.py](src/agent/agent.py#L39-L72)
-	- Security guard chan prompt injection va yeu cau y te khong an toan: [src/agent/agent.py](src/agent/agent.py#L8-L91)
-	- Vong lap ReAct day du + telemetry (AGENT_START/STEP/END, TOOL_CALL, PARSE_ERROR, TIMEOUT): [src/agent/agent.py](src/agent/agent.py#L105-L154)
-	- Tool execution dong va parsing args an toan: [src/agent/agent.py](src/agent/agent.py#L93-L104) va [src/agent/agent.py](src/agent/agent.py#L156-L164)
+	- System prompt ReAct + quy tac + few-shot vi du de giam PARSE_ERROR: [src/agent/agent.py](src/agent/agent.py#L45-L77)
+	- Security guard chan prompt injection va yeu cau y te khong an toan: [src/agent/agent.py](src/agent/agent.py#L9-L98)
+	- Vong lap ReAct day du + telemetry (AGENT_START/STEP/END, TOOL_CALL, PARSE_ERROR, TIMEOUT): [src/agent/agent.py](src/agent/agent.py#L113-L189)
+	- Tool execution dong va parsing args an toan: [src/agent/agent.py](src/agent/agent.py#L101-L111) va [src/agent/agent.py](src/agent/agent.py#L168-L200)
 - **Documentation**: Agent nhan input nguoi dung, tao prompt ReAct, goi LLM, parse Action de goi tool, ghi Observation vao conversation, lap den khi co Final Answer. Guard chay truoc LLM de ngan prompt injection va yeu cau chuan doan/ke don.
 
 ---
 
 ## II. Debugging Case Study (10 Points)
 
-*Phan nay can co log that sau khi chay agent. Hien tai chua co log trong thu muc logs, vi chua thuc thi main/test.*
+- **Problem Description**: Model local lap lai tool call nhieu lan va co output rac o buoc cuoi, dan den PARSE_ERROR va TIMEOUT.
+- **Log Source**: PARSE_ERROR va TIMEOUT xuat hien tai [logs/2026-06-01.log](logs/2026-06-01.log#L17-L19). Tool bi lap lai nhieu buoc tai [logs/2026-06-01.log](logs/2026-06-01.log#L2-L16).
+- **Diagnosis**: Prompt ReAct chua du manh voi model local, dan den viec khong chiu ket thuc bang Final Answer va lap tool call. Khi output bi nhieu, regex khong parse duoc Action.
+- **Solution**: Them quy tac “sau Observation phai tra Final Answer”, them few-shot, va guardrail dung som neu tool bi lap. Tham chieu: [src/agent/agent.py](src/agent/agent.py#L45-L181).
 
-- **Problem Description**: LLM doi luc tra ve doan van ban khong dung format ReAct (thieu Action hoac Final Answer), dan den PARSE_ERROR va agent tiep tuc vong lap.
-- **Log Source**: Chua co. Sau khi chay `python main.py`, log se nam trong `logs/YYYY-MM-DD.log` va co event `PARSE_ERROR`.
-- **Diagnosis**: Nguyen nhan thuong do prompt chua du rang buoc dinh dang hoac model local khong quen format Thought/Action/Observation.
-- **Solution**: Bo sung few-shot vi du trong system prompt de dinh hinh output, va giu regex parse Action on dinh. Tham chieu: [src/agent/agent.py](src/agent/agent.py#L39-L72) va [src/agent/agent.py](src/agent/agent.py#L93-L104).
-
-*Ke hoach tai hien va cap nhat log:* chay `python main.py`, loc event `PARSE_ERROR` tu file log, dan vao day (hoac chen 1 doan JSON log ngan). Khi co log that, em se cap nhat muc Log Source va bo sung bang chung cu the.
+**Bang chung bổ sung (security guard)**: cac cau injection va yeu cau ke don bi chan voi event SECURITY_BLOCK trong [logs/2026-06-01.log](logs/2026-06-01.log#L28-L29).
 
 ---
 
@@ -50,4 +48,4 @@ Trong vai tro TV2, em phu trach hoan thien ReAct Agent va security guard. Cac ph
 ---
 
 > [!NOTE]
-> Bao cao se duoc cap nhat them log that sau khi chay agent va lay du lieu tu `logs/`.
+> Log da duoc thu thap trong [logs/2026-06-01.log](logs/2026-06-01.log).
