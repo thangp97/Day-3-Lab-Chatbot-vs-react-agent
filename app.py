@@ -447,11 +447,9 @@ class ChatHandler(BaseHTTPRequestHandler):
 			json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 		except Exception as exc:  # noqa: BLE001
 			logger.error(f"Chat request failed: {exc}")
-			logger.error(f"Yêu cầu chat thất bại: {exc}")
 			json_response(
 				self,
 				HTTPStatus.INTERNAL_SERVER_ERROR,
-				{"error": "Failed to generate a response from the local model."},
 				{"error": "Không thể tạo phản hồi từ mô hình cục bộ."},
 			)
 

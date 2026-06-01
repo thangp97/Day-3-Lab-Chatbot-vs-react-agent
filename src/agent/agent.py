@@ -3,6 +3,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
+from src.telemetry.token_tracker import agent_token_tracker
 
 
 # Security: prompt injection and unsafe medical requests
@@ -22,7 +23,7 @@ class ReActAgent:
     SKELETON: A ReAct-style Agent that follows the Thought-Action-Observation loop.
     Students should implement the core loop logic and tool execution.
     """
-    
+
     def __init__(
         self,
         llm: LLMProvider,
@@ -109,6 +110,9 @@ class ReActAgent:
         if blocked:
             return blocked
 
+        # Reset token tracker for this session
+        agent_token_tracker.reset()
+
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
 
         conversation = f"User: {user_input}\n"
@@ -117,6 +121,14 @@ class ReActAgent:
             result = self.llm.generate(conversation, system_prompt=self.get_system_prompt())
             response = result.get("content", "")
 
+            # Record token usage for this LLM step
+            agent_token_tracker.record_step(
+                step=step,
+                model=self.llm.model_name,
+                usage=result.get("usage"),
+                latency_ms=result.get("latency_ms", 0),
+            )
+
             logger.log_event(
                 "AGENT_STEP",
                 {
@@ -124,12 +136,15 @@ class ReActAgent:
                     "llm_output": response,
                     "usage": result.get("usage"),
                     "latency_ms": result.get("latency_ms"),
+                    "cumulative_tokens": agent_token_tracker.total_tokens,
+                    "cumulative_cost_usd": agent_token_tracker.total_cost_usd,
                 },
             )
 
             if "Final Answer:" in response:
                 answer = response.split("Final Answer:")[-1].strip()
                 logger.log_event("AGENT_END", {"steps": step, "answer": answer})
+                agent_token_tracker.log_summary(user_input, "completed", answer)
                 return answer
 
             parsed = self._parse_action(response)
@@ -152,6 +167,7 @@ class ReActAgent:
             conversation += response + "\n"
 
         logger.log_event("AGENT_TIMEOUT", {"max_steps": self.max_steps})
+        agent_token_tracker.log_summary(user_input, "timeout")
         return "Xin lỗi, không tìm được câu trả lời. Hotline Vinmec: 1800 599 920."
 
     def _execute_tool(self, tool_name: str, raw_args: str) -> str:
