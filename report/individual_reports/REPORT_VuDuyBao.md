@@ -1,7 +1,7 @@
 # Individual Report — Lab 3: Chatbot vs ReAct Agent
 
-- **Student Name**: [Tên thành viên 3]
-- **Student ID**: [MSSV]
+- **Student Name**: Vũ Duy Bảo
+- **Student ID**: 2A202600565
 - **Date**: 2026-06-01
 
 ---

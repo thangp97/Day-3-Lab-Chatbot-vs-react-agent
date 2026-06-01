@@ -1,7 +1,7 @@
 # Individual Report: Lab 3 - Chatbot vs ReAct Agent
 
 - **Student Name**: Pham Manh Thang
-- **Student ID**: [Chua cung cap]
+- **Student ID**: 2A202600921
 - **Date**: 2026-06-01
 
 ---
