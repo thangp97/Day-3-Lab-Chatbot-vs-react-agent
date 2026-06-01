@@ -14,9 +14,11 @@ import ollama
 from dotenv import load_dotenv
 
 from src.agent.agent import ReActAgent
+from src.agent.agent_v1 import ReActAgentV1
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
 from src.telemetry.metrics import tracker
+from src.telemetry.token_tracker import agent_token_tracker
 from src.tools.medical_tools import TOOLS
 
 load_dotenv()
@@ -70,11 +72,13 @@ class OllamaProvider(LLMProvider):
 		response = self.client.chat(model=self.model_name, messages=messages)
 		latency_ms = int((time.time() - start_time) * 1000)
 		content = response.get("message", {}).get("content", "").strip()
-		usage = response.get("usage", {})
+		# Ollama SDK returns token counts at top-level, not inside a "usage" dict
+		prompt_tokens = response.get("prompt_eval_count", 0)
+		completion_tokens = response.get("eval_count", 0)
 		usage_payload = {
-			"prompt_tokens": usage.get("prompt_tokens", 0),
-			"completion_tokens": usage.get("completion_tokens", 0),
-			"total_tokens": usage.get("total_tokens", 0),
+			"prompt_tokens": prompt_tokens,
+			"completion_tokens": completion_tokens,
+			"total_tokens": prompt_tokens + completion_tokens,
 		}
 
 		return {
@@ -103,11 +107,13 @@ def run_llm_response(model: str, prompt: str) -> tuple[str, dict, int]:
 	)
 	latency_ms = int((time.time() - start_time) * 1000)
 	content = response.get("message", {}).get("content", "").strip()
-	usage = response.get("usage", {})
+	# Ollama SDK returns token counts at top-level, not inside a "usage" dict
+	prompt_tokens = response.get("prompt_eval_count", 0)
+	completion_tokens = response.get("eval_count", 0)
 	usage_payload = {
-		"prompt_tokens": usage.get("prompt_tokens", 0),
-		"completion_tokens": usage.get("completion_tokens", 0),
-		"total_tokens": usage.get("total_tokens", 0),
+		"prompt_tokens": prompt_tokens,
+		"completion_tokens": completion_tokens,
+		"total_tokens": prompt_tokens + completion_tokens,
 	}
 	return content, usage_payload, latency_ms
 
@@ -118,10 +124,26 @@ def run_agent_response(model: str, prompt: str) -> tuple[str, dict, int]:
 	agent = ReActAgent(llm=provider, tools=TOOLS)
 	content = agent.run(prompt)
 	latency_ms = int((time.time() - start_time) * 1000)
+	# Pull real token counts accumulated by agent_token_tracker during the run
+	summary = agent_token_tracker.get_summary()
 	usage_payload = {
-		"prompt_tokens": 0,
-		"completion_tokens": 0,
-		"total_tokens": 0,
+		"prompt_tokens": summary.get("total_prompt_tokens", 0),
+		"completion_tokens": summary.get("total_completion_tokens", 0),
+		"total_tokens": summary.get("total_tokens", 0),
+	}
+	return content, usage_payload, latency_ms
+
+
+def run_agent_v1_response(model: str, prompt: str) -> tuple[str, dict, int]:
+	start_time = time.time()
+	provider = OllamaProvider(model_name=model, client=OLLAMA_CLIENT)
+	agent = ReActAgentV1(llm=provider, tools=TOOLS)
+	content = agent.run(prompt)
+	latency_ms = int((time.time() - start_time) * 1000)
+	usage_payload = {
+		"prompt_tokens": agent._last_prompt_tokens,
+		"completion_tokens": agent._last_completion_tokens,
+		"total_tokens": agent._last_prompt_tokens + agent._last_completion_tokens,
 	}
 	return content, usage_payload, latency_ms
 
@@ -378,6 +400,68 @@ class ChatHandler(BaseHTTPRequestHandler):
 				)
 			return
 
+		if parsed_url.path == "/api/evaluation/agent-compare":
+			try:
+				payload = read_json_body(self)
+				model = str(payload.get("model") or OLLAMA_MODEL).strip()
+				prompts = payload.get("prompts") or EVALUATION_PROMPTS
+				if not isinstance(prompts, list) or not prompts:
+					raise ValueError("'prompts' must be a non-empty list")
+
+				rows = []
+				v1_latencies = []
+				v2_latencies = []
+
+				for prompt in prompts:
+					prompt_text = str(prompt).strip()
+					if not prompt_text:
+						continue
+
+					v1_reply, v1_usage, v1_latency = run_agent_v1_response(model, prompt_text)
+					v2_reply, v2_usage, v2_latency = run_agent_response(model, prompt_text)
+					v1_latencies.append(v1_latency)
+					v2_latencies.append(v2_latency)
+
+					v2_summary = agent_token_tracker.get_summary()
+
+					rows.append({
+						"prompt": prompt_text,
+						"v1": {
+							"reply": v1_reply,
+							"latency_ms": v1_latency,
+							"usage": v1_usage,
+							"steps": None,
+						},
+						"v2": {
+							"reply": v2_reply,
+							"latency_ms": v2_latency,
+							"usage": v2_usage,
+							"steps": v2_summary.get("steps_used"),
+						},
+					})
+
+				avg_v1_latency = int(sum(v1_latencies) / max(len(v1_latencies), 1))
+				avg_v2_latency = int(sum(v2_latencies) / max(len(v2_latencies), 1))
+				logger.log_event("AGENT_COMPARE_RUN", {
+					"model": model,
+					"prompt_count": len(rows),
+					"avg_v1_latency_ms": avg_v1_latency,
+					"avg_v2_latency_ms": avg_v2_latency,
+				})
+
+				json_response(self, HTTPStatus.OK, {
+					"model": model,
+					"avg_v1_latency_ms": avg_v1_latency,
+					"avg_v2_latency_ms": avg_v2_latency,
+					"rows": rows,
+				})
+			except ValueError as exc:
+				json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+			except Exception as exc:  # noqa: BLE001
+				logger.error(f"Agent compare request failed: {exc}")
+				json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Không thể chạy so sánh agent."})
+			return
+
 		if parsed_url.path != "/api/chat":
 			self.send_error(HTTPStatus.NOT_FOUND)
 			return
@@ -386,21 +470,35 @@ class ChatHandler(BaseHTTPRequestHandler):
 			payload = read_json_body(self)
 			messages = normalize_messages(payload.get("messages"))
 			model = str(payload.get("model") or OLLAMA_MODEL).strip()
-			use_agent = should_use_agent(payload)
+			chat_mode = str(payload.get("mode", "")).strip().lower()
+			use_agent_env = str(os.getenv("USE_AGENT", "")).strip().lower() in {"1", "true", "yes", "y", "on"}
 			start_time = time.time()
 
-			if use_agent:
+			if chat_mode == "agent_v1":
+				provider = OllamaProvider(model_name=model, client=OLLAMA_CLIENT)
+				agent_v1 = ReActAgentV1(llm=provider, tools=TOOLS)
+				user_input = messages[-1]["content"]
+				content = agent_v1.run(user_input)
+				latency_ms = int((time.time() - start_time) * 1000)
+				usage_payload = {
+					"prompt_tokens": agent_v1._last_prompt_tokens,
+					"completion_tokens": agent_v1._last_completion_tokens,
+					"total_tokens": agent_v1._last_prompt_tokens + agent_v1._last_completion_tokens,
+				}
+				source = "AGENT_V1"
+			elif chat_mode in {"agent", "agent_v2"} or use_agent_env:
 				provider = OllamaProvider(model_name=model, client=OLLAMA_CLIENT)
 				agent = ReActAgent(llm=provider, tools=TOOLS)
 				user_input = messages[-1]["content"]
 				content = agent.run(user_input)
 				latency_ms = int((time.time() - start_time) * 1000)
+				summary = agent_token_tracker.get_summary()
 				usage_payload = {
-					"prompt_tokens": 0,
-					"completion_tokens": 0,
-					"total_tokens": 0,
+					"prompt_tokens": summary.get("total_prompt_tokens", 0),
+					"completion_tokens": summary.get("total_completion_tokens", 0),
+					"total_tokens": summary.get("total_tokens", 0),
 				}
-				source = "AGENT"
+				source = "AGENT_V2"
 			else:
 				response = OLLAMA_CLIENT.chat(
 					model=model,
@@ -408,11 +506,13 @@ class ChatHandler(BaseHTTPRequestHandler):
 				)
 				latency_ms = int((time.time() - start_time) * 1000)
 				content = response["message"]["content"].strip()
-				usage = response.get("usage", {})
+				# Ollama SDK returns token counts at top-level, not inside a "usage" dict
+				_pt = response.get("prompt_eval_count", 0)
+				_ct = response.get("eval_count", 0)
 				usage_payload = {
-					"prompt_tokens": usage.get("prompt_tokens", 0),
-					"completion_tokens": usage.get("completion_tokens", 0),
-					"total_tokens": usage.get("total_tokens", 0),
+					"prompt_tokens": _pt,
+					"completion_tokens": _ct,
+					"total_tokens": _pt + _ct,
 				}
 				source = "LLM"
 

@@ -236,6 +236,11 @@ button {
   cursor: not-allowed;
 }
 
+.eval-button-secondary {
+  background: linear-gradient(135deg, rgba(139, 141, 255, 0.85), rgba(121, 217, 255, 0.75));
+  margin-top: 0;
+}
+
 .panel-error {
   margin: 10px 0 0;
   font-size: 0.82rem;
@@ -343,6 +348,24 @@ button {
 .evaluation-meta {
   font-size: 0.74rem;
   color: var(--text-muted);
+}
+
+.evaluation-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.evaluation-tokens {
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+  color: rgba(121, 217, 255, 0.75);
+}
+
+.evaluation-steps {
+  font-size: 0.7rem;
+  color: rgba(139, 141, 255, 0.75);
 }
 
 .chat-topbar h2 {
