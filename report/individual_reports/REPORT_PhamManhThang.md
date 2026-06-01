@@ -1,6 +1,6 @@
 # Individual Report: Lab 3 - Chatbot vs ReAct Agent
 
-- **Student Name**: Pham Manh Thang
+- **Student Name**: Phạm Mạnh Thắng
 - **Student ID**: 2A202600921
 - **Date**: 2026-06-01
 
@@ -8,44 +8,44 @@
 
 ## I. Technical Contribution (15 Points)
 
-Trong vai tro TV2, em phu trach hoan thien ReAct Agent va security guard. Cac phan duoc trien khai tap trung vao agent loop, parsing Action/args, log telemetry, va giam parse error bang few-shot.
+Trong vai trò TV2, em phụ trách hoàn thiện ReAct Agent và security guard. Các phần được triển khai tập trung vào agent loop, parsing Action/args, log telemetry, và giảm parse error bằng few-shot.
 
 - **Modules Implementated**: [src/agent/agent.py](src/agent/agent.py#L1-L200)
 - **Code Highlights**:
-	- System prompt ReAct + quy tac + few-shot vi du de giam PARSE_ERROR: [src/agent/agent.py](src/agent/agent.py#L45-L77)
-	- Security guard chan prompt injection va yeu cau y te khong an toan: [src/agent/agent.py](src/agent/agent.py#L9-L98)
-	- Vong lap ReAct day du + telemetry (AGENT_START/STEP/END, TOOL_CALL, PARSE_ERROR, TIMEOUT): [src/agent/agent.py](src/agent/agent.py#L113-L189)
-	- Tool execution dong va parsing args an toan: [src/agent/agent.py](src/agent/agent.py#L101-L111) va [src/agent/agent.py](src/agent/agent.py#L168-L200)
-- **Documentation**: Agent nhan input nguoi dung, tao prompt ReAct, goi LLM, parse Action de goi tool, ghi Observation vao conversation, lap den khi co Final Answer. Guard chay truoc LLM de ngan prompt injection va yeu cau chuan doan/ke don.
+	- System prompt ReAct + quy tắc + few-shot ví dụ để giảm PARSE_ERROR: [src/agent/agent.py](src/agent/agent.py#L45-L77)
+	- Security guard chặn prompt injection và yêu cầu y tế không an toàn: [src/agent/agent.py](src/agent/agent.py#L9-L98)
+	- Vòng lặp ReAct đầy đủ + telemetry (AGENT_START/STEP/END, TOOL_CALL, PARSE_ERROR, TIMEOUT): [src/agent/agent.py](src/agent/agent.py#L113-L189)
+	- Tool execution động và parsing args an toàn: [src/agent/agent.py](src/agent/agent.py#L101-L111) và [src/agent/agent.py](src/agent/agent.py#L168-L200)
+- **Documentation**: Agent nhận input người dùng, tạo prompt ReAct, gọi LLM, parse Action để gọi tool, ghi Observation vào conversation, lặp đến khi có Final Answer. Guard chạy trước LLM để ngăn prompt injection và yêu cầu chẩn đoán/kê đơn.
 
 ---
 
 ## II. Debugging Case Study (10 Points)
 
-- **Problem Description**: Model local lap lai tool call nhieu lan va co output rac o buoc cuoi, dan den PARSE_ERROR va TIMEOUT.
-- **Log Source**: PARSE_ERROR va TIMEOUT xuat hien tai [logs/2026-06-01.log](logs/2026-06-01.log#L17-L19). Tool bi lap lai nhieu buoc tai [logs/2026-06-01.log](logs/2026-06-01.log#L2-L16).
-- **Diagnosis**: Prompt ReAct chua du manh voi model local, dan den viec khong chiu ket thuc bang Final Answer va lap tool call. Khi output bi nhieu, regex khong parse duoc Action.
-- **Solution**: Them quy tac “sau Observation phai tra Final Answer”, them few-shot, va guardrail dung som neu tool bi lap. Tham chieu: [src/agent/agent.py](src/agent/agent.py#L45-L181).
+- **Problem Description**: Model local lặp lại tool call nhiều lần và có output rác ở bước cuối, dẫn đến PARSE_ERROR và TIMEOUT.
+- **Log Source**: PARSE_ERROR và TIMEOUT xuất hiện tại [logs/2026-06-01.log](logs/2026-06-01.log#L17-L19). Tool bị lặp lại nhiều bước tại [logs/2026-06-01.log](logs/2026-06-01.log#L2-L16).
+- **Diagnosis**: Prompt ReAct chưa đủ mạnh với model local, dẫn đến việc không chịu kết thúc bằng Final Answer và lặp tool call. Khi output bị nhiễu, regex không parse được Action.
+- **Solution**: Thêm quy tắc “sau Observation phải trả Final Answer”, thêm few-shot, và guardrail dừng sớm nếu tool bị lặp. Tham chiếu: [src/agent/agent.py](src/agent/agent.py#L45-L181).
 
-**Bang chung bổ sung (security guard)**: cac cau injection va yeu cau ke don bi chan voi event SECURITY_BLOCK trong [logs/2026-06-01.log](logs/2026-06-01.log#L28-L29).
+**Bằng chứng bổ sung (security guard)**: các câu injection và yêu cầu kê đơn bị chặn với event SECURITY_BLOCK trong [logs/2026-06-01.log](logs/2026-06-01.log#L28-L29).
 
 ---
 
 ## III. Personal Insights: Chatbot vs ReAct (10 Points)
 
-1. **Reasoning**: Thought giup agent tu nhan biet can dung tool hay tra loi truc tiep, giam hallucination va gan ket voi nguon thong tin trong tool. Chatbot baseline khong co buoc suy nghi va khong co co che goi tool.
-2. **Reliability**: Agent co the te hon chatbot neu model khong tuan thu format ReAct (PARSE_ERROR, TIMEOUT). Khi parse loi, agent co the lap nhieu buoc va tra loi cham hon.
-3. **Observation**: Observation la “feedback” tu tool, buoc tiep theo se dua tren thong tin cu the (vi du: trieu chung nguy hiem thi them hotline). Dieu nay tang tinh nhat quan so voi chatbot tra loi tu bo nho mo hinh.
+1. **Reasoning**: Thought giúp agent tự nhận biết cần dùng tool hay trả lời trực tiếp, giảm hallucination và gắn kết với nguồn thông tin trong tool. Chatbot baseline không có bước suy nghĩ và không có cơ chế gọi tool.
+2. **Reliability**: Agent có thể tệ hơn chatbot nếu model không tuân thủ format ReAct (PARSE_ERROR, TIMEOUT). Khi parse lỗi, agent có thể lặp nhiều bước và trả lời chậm hơn.
+3. **Observation**: Observation là “feedback” từ tool, bước tiếp theo sẽ dựa trên thông tin cụ thể (ví dụ: triệu chứng nguy hiểm thì thêm hotline). Điều này tăng tính nhất quán so với chatbot trả lời từ bộ nhớ mô hình.
 
 ---
 
 ## IV. Future Improvements (5 Points)
 
-- **Scalability**: Tach tool execution sang hang doi (queue) de xu ly bat dong bo va gioi han timeout cho tung tool.
-- **Safety**: Them “Supervisor” kiem tra dau ra truoc khi tra loi cuoi, va them allowlist cho tool arguments.
-- **Performance**: Neu co nhieu tool, them bo chon tool tu dong (tool router) hoac vector DB de tim tool phu hop nhanh hon.
+- **Scalability**: Tách tool execution sang hàng đợi (queue) để xử lý bất đồng bộ và giới hạn timeout cho từng tool.
+- **Safety**: Thêm “Supervisor” kiểm tra đầu ra trước khi trả lời cuối, và thêm allowlist cho tool arguments.
+- **Performance**: Nếu có nhiều tool, thêm bộ chọn tool tự động (tool router) hoặc vector DB để tìm tool phù hợp nhanh hơn.
 
 ---
 
 > [!NOTE]
-> Log da duoc thu thap trong [logs/2026-06-01.log](logs/2026-06-01.log).
+> Log đã được thu thập trong [logs/2026-06-01.log](logs/2026-06-01.log).
