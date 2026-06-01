@@ -15,8 +15,29 @@ cp .env.example .env
 pip install -r requirements.txt
 ```
 
-### 3. Directory Structure
+### 3. Running the Application
+
+This project consists of multiple components. You can run them in separate terminal windows:
+
+**Backend API (Python HTTP Server):**
+```bash
+python app.py
+```
+This will start the backend server at `http://127.0.0.1:8000`.
+
+**Analytics Dashboard (Streamlit):**
+```bash
+streamlit run dashboard.py
+```
+This will open a local web dashboard to monitor telemetry, logs, and agent performance.
+
+**Frontend UI (React/Vite):**
+Please refer to [frontend/README.md](./frontend/README.md) for detailed instructions on how to install and run the React web interface.
+
+### 4. Directory Structure
 - `src/tools/`: Extension point for your custom tools.
+- `src/agent/`: Core ReAct Agent logic and system prompts.
+- `logs/`: Telemetry outputs and logs.
 
 ## 🏠 Running with Local Models (CPU)
 
@@ -43,7 +64,7 @@ LOCAL_MODEL_PATH=./models/Phi-3-mini-4k-instruct-q4.gguf
 2.  **ReAct Loop**: Implement the `Thought-Action-Observation` cycle in `src/agent/agent.py`.
 3.  **Provider Switching**: Swap between OpenAI and Gemini seamlessly using the `LLMProvider` interface.
 4.  **Failure Analysis**: Use the structured logs in `logs/` to identify why the agent fails (hallucinations, parsing errors).
-5.  **Grading & Bonus**: Follow the [SCORING.md](file:///Users/tindt/personal/ai-thuc-chien/day03-lab-agent/SCORING.md) to maximize your points and explore bonus metrics.
+5.  **Grading & Bonus**: Follow the [SCORING.md](SCORING.md) to maximize your points and explore bonus metrics.
 
 ## 🛠️ How to Use This Baseline
 The code is designed as a **Production Prototype**. It includes:
